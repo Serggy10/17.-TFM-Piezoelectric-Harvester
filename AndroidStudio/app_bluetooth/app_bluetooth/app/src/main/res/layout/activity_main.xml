@@ -1,25 +1,102 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/main"
+    android:id="@+id/scrollView"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".ui.MainActivity">
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Hello World!"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
-
-    <Button
+    android:fitsSystemWindows="true">
+    <LinearLayout
+        android:id="@+id/mainLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Buscar"
-        android:id="@+id/btn"/>
+        android:orientation="vertical"
+        android:padding="16dp">
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+        <!-- Botones de control -->
+        <Button
+            android:id="@+id/btnScan"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Forzar escaneo de dispositivos" />
+
+        <Button
+            android:id="@+id/btnClear"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Borrar gráficas" />
+
+        <!-- Última conexión -->
+        <TextView
+            android:id="@+id/tvLastConnection"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Última conexión: -"
+            android:layout_marginTop="8dp" />
+
+        <!-- Gráfica de Temperatura -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Temperatura (°C)"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp" />
+
+        <com.github.mikephil.charting.charts.LineChart
+            android:id="@+id/chartTemp"
+            android:layout_width="match_parent"
+            android:layout_height="200dp" />
+
+        <!-- Gráfica de Humedad Aire -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Humedad Aire (%)"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp" />
+
+        <com.github.mikephil.charting.charts.LineChart
+            android:id="@+id/chartHumAir"
+            android:layout_width="match_parent"
+            android:layout_height="200dp" />
+
+        <!-- Gráfica de Humedad Suelo -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Humedad Suelo (%)"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp" />
+
+        <com.github.mikephil.charting.charts.LineChart
+            android:id="@+id/chartHumSoil"
+            android:layout_width="match_parent"
+            android:layout_height="200dp" />
+
+        <!-- Gráfica de Luz -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Luminosidad (lux)"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp" />
+
+        <com.github.mikephil.charting.charts.LineChart
+            android:id="@+id/chartLux"
+            android:layout_width="match_parent"
+            android:layout_height="200dp" />
+
+        <!-- Gráfica de Batería -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Voltaje batería (V)"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp" />
+
+        <com.github.mikephil.charting.charts.LineChart
+            android:id="@+id/chartBatt"
+            android:layout_width="match_parent"
+            android:layout_height="200dp" />
+
+    </LinearLayout>
+</ScrollView>

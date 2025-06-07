@@ -12,12 +12,13 @@ pluginManagement {
     }
 }
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
+        maven { url = uri("https://jitpack.io") }  // <--- AÑADIR ESTO
     }
 }
+
 
 rootProject.name = "Bluetooth"
 include(":app")

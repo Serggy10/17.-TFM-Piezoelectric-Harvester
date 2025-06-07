@@ -1,53 +1,86 @@
 package com.udemycourse.bluetooth.ui.bleViewModel
 
-import android.annotation.SuppressLint
-import android.app.Application
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothManager
-import android.bluetooth.le.BluetoothLeScanner
-import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanResult
-import android.content.Context
-import android.os.Handler
-import android.os.Looper
-import android.util.Log
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
-import java.util.UUID
+import android.content.SharedPreferences
+import androidx.lifecycle.ViewModel
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 
+@HiltViewModel
+class BLEViewModel @Inject constructor() : ViewModel() {
 
-class BLEViewModel(application: Application) : AndroidViewModel(application){
+    // Listas de datos temporales
+    val tempList = mutableListOf<Float>()
+    val humAirList = mutableListOf<Float>()
+    val humSoilList = mutableListOf<Float>()
+    val luxList = mutableListOf<Int>()
+    val battList = mutableListOf<Float>()
 
-    //Configurar caracteristicas
-    private val SERVICE_UUID = UUID.fromString("0000180d-0000-1000-8000-00805f9b34fb")  //UUID de chatGPT
-    private val CHARACTERISTIC_UUID =UUID.fromString("0000180d-0000-1000-8000-00805f8b34fb")
+    var lastConnectionTime: Long = 0L
 
-    private var characteristic : BluetoothGattCharacteristic? = null
+    private var prefs: SharedPreferences? = null
+    private val gson = Gson()
 
+    fun setPreferences(prefs: SharedPreferences) {
+        this.prefs = prefs
+    }
 
-    //Variables para la conexion
-    private val bluetoothManager =
-        application.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-    private val bluetoothAdapter: BluetoothAdapter = bluetoothManager.adapter
-    private val bluetoothLeScanner: BluetoothLeScanner = bluetoothAdapter.bluetoothLeScanner
-    private var bluetoothGatt: BluetoothGatt? = null
+    fun addTemp(value: Float) {
+        tempList.add(value)
+        saveList("tempList", tempList)
+    }
 
-    private val _isConnected = MutableLiveData<Boolean>(false)
-    val isConnected: LiveData<Boolean> get() = _isConnected
+    fun addHumAir(value: Float) {
+        humAirList.add(value)
+        saveList("humAirList", humAirList)
+    }
 
-    private val _deviceName = MutableLiveData<String>()
-    val deviceName: LiveData<String> get() = _deviceName
+    fun addHumSoil(value: Float) {
+        humSoilList.add(value)
+        saveList("humSoilList", humSoilList)
+    }
 
-    private val _isScanning = MutableLiveData<Boolean>()
-    val isScanning: LiveData<Boolean> get() = _isScanning
+    fun addLux(value: Int) {
+        luxList.add(value)
+        saveList("luxList", luxList)
+    }
 
-    private val _availableDevices = MutableLiveData<MutableList<BluetoothDevice>>(mutableListOf())
-    val availableDevices: MutableLiveData<MutableList<BluetoothDevice>> get() = _availableDevices
+    fun addBatt(value: Float) {
+        battList.add(value)
+        saveList("battList", battList)
+    }
 
-    private var scanReady: Boolean = true
+    fun clearData() {
+        tempList.clear()
+        humAirList.clear()
+        humSoilList.clear()
+        luxList.clear()
+        battList.clear()
 
+        prefs?.edit()?.clear()?.apply()
+    }
+
+    fun loadData() {
+        tempList.addAll(loadList("tempList", object : TypeToken<MutableList<Float>>() {}))
+        humAirList.addAll(loadList("humAirList", object : TypeToken<MutableList<Float>>() {}))
+        humSoilList.addAll(loadList("humSoilList", object : TypeToken<MutableList<Float>>() {}))
+        luxList.addAll(loadList("luxList", object : TypeToken<MutableList<Int>>() {}))
+        battList.addAll(loadList("battList", object : TypeToken<MutableList<Float>>() {}))
+    }
+
+    private fun <T> saveList(key: String, list: MutableList<T>) {
+        prefs?.edit()?.putString(key, gson.toJson(list))?.apply()
+    }
+
+    private fun <T> loadList(key: String, typeToken: TypeToken<MutableList<T>>): MutableList<T> {
+        val json = prefs?.getString(key, null)
+        return if (json != null) {
+            gson.fromJson(json, typeToken.type)
+        } else {
+            mutableListOf()
+        }
+    }
 }

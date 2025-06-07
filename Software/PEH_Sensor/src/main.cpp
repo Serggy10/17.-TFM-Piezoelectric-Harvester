@@ -1,136 +1,53 @@
-// #include <Arduino.h>
-// #include <BLEDevice.h>
-// #include <BLEServer.h>
-// #include <BLEUtils.h>
-// #include <BLE2902.h>
-// #include <ArduinoJson.h>
-
-// #define DEVICE_ID "NODE_01"
-// #define SERVICE_UUID "12345678-1234-1234-1234-1234567890ab"
-// #define CHAR_JSON_UUID "12345678-1234-1234-1234-1234567890b1"
-
-// #define DEEP_SLEEP_MINUTES 0.5  // 30 segundos
-// #define MAX_CYCLES 10  // 10 ciclos * 30 s = 5 min
-
-// RTC_DATA_ATTR int cycleCounter = 0;
-// RTC_DATA_ATTR char jsonBuffer[4096] = "{}";
-
-
-// void setup() {
-//   Serial.begin(115200);
-//   while (!Serial);
-
-//   Serial.printf("Ciclo #%d\n", cycleCounter + 1);
-
-//   // Cargar JSON actual
-//   DynamicJsonDocument doc(4096);
-//   deserializeJson(doc, jsonBuffer);
-//   JsonArray readings;
-
-//   if (cycleCounter == 0) {
-//     readings = doc.createNestedArray("readings");
-//   } else {
-//     readings = doc["readings"].as<JsonArray>();
-//   }
-
-//   // Simulación de sensores
-//   float temp = random(180, 300) / 10.0;
-//   float hum_air = random(300, 800) / 10.0;
-//   float hum_soil = random(100, 800) / 10.0;
-//   int lux = random(0, 1000);
-//   float batt_volt = random(370, 420) / 100.0;
-
-//   JsonObject entry = readings.createNestedObject();
-//   entry["timestamp"] = millis() / 1000;
-//   entry["temp"] = temp;
-//   entry["hum_air"] = hum_air;
-//   entry["hum_soil"] = hum_soil;
-//   entry["lux"] = lux;
-//   entry["batt_volt"] = batt_volt;
-
-//   // Guardar JSON actualizado
-//   serializeJson(doc, jsonBuffer);
-
-//   Serial.println("Lectura añadida.");
-//   Serial.printf("Lecturas acumuladas: %d/%d\n", cycleCounter + 1, MAX_CYCLES);
-
-//   // ¿Enviar?
-//   if (cycleCounter + 1 >= MAX_CYCLES) {
-//     Serial.println("Enviando JSON por BLE...");
-
-//     // Inicializar BLE
-//     BLEDevice::init(DEVICE_ID);
-//     BLEServer *pServer = BLEDevice::createServer();
-//     BLEService *pService = pServer->createService(SERVICE_UUID);
-
-//     BLECharacteristic *pCharJson = pService->createCharacteristic(
-//                                       CHAR_JSON_UUID,
-//                                       BLECharacteristic::PROPERTY_READ
-//                                    );
-
-//     pCharJson->addDescriptor(new BLE2902());
-
-//     pService->start();
-
-//     BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-//     pAdvertising->addServiceUUID(SERVICE_UUID);
-//     pAdvertising->setScanResponse(true);
-//     pAdvertising->setMinPreferred(0x06);
-//     pAdvertising->setMinPreferred(0x12);
-
-//     BLEDevice::startAdvertising();
-
-//     // Poner el JSON completo en la característica
-//     pCharJson->setValue(jsonBuffer);
-
-//     Serial.println("BLE advertising activo. Esperando conexión para leer JSON.");
-//     Serial.println(jsonBuffer);
-
-//     // Mantener BLE activo durante 30 s
-//     delay(30000);
-
-//     BLEDevice::stopAdvertising();
-//     BLEDevice::deinit();
-
-//     Serial.println("BLE terminado. Reseteando contador y buffer.");
-
-//     // Reset
-//     cycleCounter = 0;
-//     strcpy(jsonBuffer, "{}");
-//   } else {
-//     cycleCounter++;
-//   }
-
-//   // Deep sleep
-//   Serial.printf("Entrando en deep sleep durante %.1f minutos...\n", DEEP_SLEEP_MINUTES);
-//   Serial.flush();
-
-//   esp_sleep_enable_timer_wakeup(DEEP_SLEEP_MINUTES * 60 * 1000000ULL);
-//   esp_deep_sleep_start();
-// }
-
-// void loop() {
-//   // No se usa
-// }
-
-
 #include <Arduino.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
-#include <ArduinoJson.h>
 
 #define DEVICE_ID "NODE_01"
 #define SERVICE_UUID "12345678-1234-1234-1234-1234567890ab"
-#define CHAR_JSON_UUID "12345678-1234-1234-1234-1234567890b1"
 
+// UUIDs de las características
+#define CHAR_TEMP_UUID     "12345678-1234-1234-1234-1234567890c1"
+#define CHAR_HUM_AIR_UUID  "12345678-1234-1234-1234-1234567890c2"
+#define CHAR_HUM_SOIL_UUID "12345678-1234-1234-1234-1234567890c3"
+#define CHAR_LUX_UUID      "12345678-1234-1234-1234-1234567890c4"
+#define CHAR_BATT_UUID     "12345678-1234-1234-1234-1234567890c5"
+
+// Características BLE
 BLEServer *pServer;
-BLEService *pService;
-BLECharacteristic *pCharJson;
+// Callback para saber cuándo se conecta / desconecta un cliente BLE
+class MyServerCallbacks : public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      Serial.println("Cliente BLE conectado.");
+    };
 
-DynamicJsonDocument doc(4096);
-char jsonBuffer[4096] = "{}";
+void onDisconnect(BLEServer* pServer) {
+    Serial.println("Cliente BLE desconectado. Reiniciando advertising completo...");
+
+    BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+    pAdvertising->stop();  // <--- MUY IMPORTANTE: parar primero
+    delay(50);             // (pequeño delay para asegurar limpieza en algunos stacks)
+    pAdvertising->start(); // <--- volver a iniciar
+}
+};
+
+
+BLEService *pService;
+BLECharacteristic *pCharTemp;
+BLECharacteristic *pCharHumAir;
+BLECharacteristic *pCharHumSoil;
+BLECharacteristic *pCharLux;
+BLECharacteristic *pCharBatt;
+
+// Variables de registro (ejemplo: últimos N valores)
+#define MAX_READINGS 100
+float temp_log[MAX_READINGS];
+float hum_air_log[MAX_READINGS];
+float hum_soil_log[MAX_READINGS];
+int lux_log[MAX_READINGS];
+float batt_volt_log[MAX_READINGS];
+int reading_index = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -138,18 +55,43 @@ void setup() {
 
   Serial.println("Inicializando BLE...");
 
-  // Inicializar BLE
   BLEDevice::init(DEVICE_ID);
-  pServer = BLEDevice::createServer();
-  pService = pServer->createService(SERVICE_UUID);
+pServer = BLEDevice::createServer();
+pServer->setCallbacks(new MyServerCallbacks());  // <--- ESTO AÑADIMOS
 
-  pCharJson = pService->createCharacteristic(
-                  CHAR_JSON_UUID,
+pService = pServer->createService(SERVICE_UUID);
+  // Crear cada característica
+  pCharTemp = pService->createCharacteristic(
+                  CHAR_TEMP_UUID,
                   BLECharacteristic::PROPERTY_READ
               );
+  pCharTemp->addDescriptor(new BLE2902());
 
-  pCharJson->addDescriptor(new BLE2902());
+  pCharHumAir = pService->createCharacteristic(
+                  CHAR_HUM_AIR_UUID,
+                  BLECharacteristic::PROPERTY_READ
+              );
+  pCharHumAir->addDescriptor(new BLE2902());
 
+  pCharHumSoil = pService->createCharacteristic(
+                  CHAR_HUM_SOIL_UUID,
+                  BLECharacteristic::PROPERTY_READ
+              );
+  pCharHumSoil->addDescriptor(new BLE2902());
+
+  pCharLux = pService->createCharacteristic(
+                  CHAR_LUX_UUID,
+                  BLECharacteristic::PROPERTY_READ
+              );
+  pCharLux->addDescriptor(new BLE2902());
+
+  pCharBatt = pService->createCharacteristic(
+                  CHAR_BATT_UUID,
+                  BLECharacteristic::PROPERTY_READ
+              );
+  pCharBatt->addDescriptor(new BLE2902());
+
+  // Iniciar servicio y advertising
   pService->start();
 
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
@@ -164,22 +106,11 @@ void setup() {
 }
 
 void loop() {
-  // Simulación de sensores cada 15 s
   static unsigned long lastUpdate = 0;
   unsigned long now = millis();
 
-  if (now - lastUpdate > 15000) {  // cada 15 s
+  if (now - lastUpdate > 1500) {  // cada 15 s
     lastUpdate = now;
-
-    // Añadir nueva lectura al JSON
-    JsonArray readings;
-
-    // Si el doc está vacío, inicializar el array
-    if (!doc.containsKey("readings")) {
-      readings = doc.createNestedArray("readings");
-    } else {
-      readings = doc["readings"].as<JsonArray>();
-    }
 
     // Simulación de sensores
     float temp = random(180, 300) / 10.0;
@@ -188,22 +119,32 @@ void loop() {
     int lux = random(0, 1000);
     float batt_volt = random(370, 420) / 100.0;
 
-    JsonObject entry = readings.createNestedObject();
-    entry["timestamp"] = now / 1000;
-    entry["temp"] = temp;
-    entry["hum_air"] = hum_air;
-    entry["hum_soil"] = hum_soil;
-    entry["lux"] = lux;
-    entry["batt_volt"] = batt_volt;
+    // Guardar en arrays circulares
+    if (reading_index < MAX_READINGS) {
+      temp_log[reading_index] = temp;
+      hum_air_log[reading_index] = hum_air;
+      hum_soil_log[reading_index] = hum_soil;
+      lux_log[reading_index] = lux;
+      batt_volt_log[reading_index] = batt_volt;
+      reading_index++;
+    } else {
+      Serial.println("Buffer de lecturas lleno. Se podrían hacer estrategias de compresión / envío parcial.");
+    }
 
-    // Guardar JSON actualizado
-    serializeJson(doc, jsonBuffer);
-
-    // Actualizar la característica
-    pCharJson->setValue(jsonBuffer);
+    // Actualizar características con la última lectura
+    pCharTemp->setValue((uint8_t*)&temp, sizeof(temp));
+    pCharHumAir->setValue((uint8_t*)&hum_air, sizeof(hum_air));
+    pCharHumSoil->setValue((uint8_t*)&hum_soil, sizeof(hum_soil));
+    pCharLux->setValue((uint8_t*)&lux, sizeof(lux));
+    pCharBatt->setValue((uint8_t*)&batt_volt, sizeof(batt_volt));
 
     // Log
-    Serial.println("Nueva lectura añadida al JSON:");
-    Serial.println(jsonBuffer);
+    Serial.println("Nueva lectura:");
+    Serial.printf("Temp: %.1f °C\n", temp);
+    Serial.printf("Hum Air: %.1f %%\n", hum_air);
+    Serial.printf("Hum Soil: %.1f %%\n", hum_soil);
+    Serial.printf("Lux: %d lx\n", lux);
+    Serial.printf("Batt Volt: %.2f V\n", batt_volt);
+    Serial.printf("Lecturas acumuladas: %d\n", reading_index);
   }
 }
