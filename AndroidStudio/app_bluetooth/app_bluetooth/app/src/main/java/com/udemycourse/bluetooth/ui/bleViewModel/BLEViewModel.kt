@@ -16,7 +16,7 @@ class BLEViewModel @Inject constructor() : ViewModel() {
     val tempList = mutableListOf<Float>()
     val humAirList = mutableListOf<Float>()
     val humSoilList = mutableListOf<Float>()
-    val luxList = mutableListOf<Int>()
+    val luxList = mutableListOf<Float>()
     val battList = mutableListOf<Float>()
 
     var lastConnectionTime: Long = 0L
@@ -43,7 +43,7 @@ class BLEViewModel @Inject constructor() : ViewModel() {
         saveList("humSoilList", humSoilList)
     }
 
-    fun addLux(value: Int) {
+    fun addLux(value: Float) {
         luxList.add(value)
         saveList("luxList", luxList)
     }
@@ -67,7 +67,7 @@ class BLEViewModel @Inject constructor() : ViewModel() {
         tempList.addAll(loadList("tempList", object : TypeToken<MutableList<Float>>() {}))
         humAirList.addAll(loadList("humAirList", object : TypeToken<MutableList<Float>>() {}))
         humSoilList.addAll(loadList("humSoilList", object : TypeToken<MutableList<Float>>() {}))
-        luxList.addAll(loadList("luxList", object : TypeToken<MutableList<Int>>() {}))
+        luxList.addAll(loadList("luxList", object : TypeToken<MutableList<Float>>() {}))
         battList.addAll(loadList("battList", object : TypeToken<MutableList<Float>>() {}))
     }
 
