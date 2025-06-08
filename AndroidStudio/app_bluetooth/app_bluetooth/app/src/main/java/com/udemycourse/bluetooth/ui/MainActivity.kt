@@ -41,11 +41,7 @@ class MainActivity : AppCompatActivity() {
     private val scanInterval = 10000L
 
     private val SERVICE_UUID = UUID.fromString("12345678-1234-1234-1234-1234567890ab")
-    private val CHAR_TEMP_UUID = UUID.fromString("0000aaa1-0000-1000-8000-00805f9b34fb")
-    private val CHAR_HUM_AIR_UUID = UUID.fromString("0000aaa2-0000-1000-8000-00805f9b34fb")
-    private val CHAR_HUM_SOIL_UUID = UUID.fromString("0000aaa3-0000-1000-8000-00805f9b34fb")
-    private val CHAR_LUX_UUID = UUID.fromString("0000aaa4-0000-1000-8000-00805f9b34fb")
-    private val CHAR_BATT_UUID = UUID.fromString("0000aaa5-0000-1000-8000-00805f9b34fb")
+    private val CHAR_ALL_SENSORS_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb")
     private val CHAR_ACK_UUID = UUID.fromString("0000aaff-0000-1000-8000-00805f9b34fb")
 
     private val requestPermissionLauncher =
@@ -58,13 +54,8 @@ class MainActivity : AppCompatActivity() {
         }
 
     private var gattConnection: BluetoothGatt? = null
-    private var charTemp: BluetoothGattCharacteristic? = null
-    private var charHumAir: BluetoothGattCharacteristic? = null
-    private var charHumSoil: BluetoothGattCharacteristic? = null
-    private var charLux: BluetoothGattCharacteristic? = null
-    private var charBatt: BluetoothGattCharacteristic? = null
+    private var charAllSensors: BluetoothGattCharacteristic? = null
     private var ackCharacteristic: BluetoothGattCharacteristic? = null
-    private var descriptorWriteStep = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -142,131 +133,83 @@ class MainActivity : AppCompatActivity() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 gattConnection = gatt
-                gatt.discoverServices()
+
+                val mtuRequest = 128
+                Log.d("BLE_MTU", "Solicitando MTU de $mtuRequest bytes...")
+                gatt.requestMtu(mtuRequest)
+
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 gatt.close()
                 gattConnection = null
             }
         }
 
+        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.d("BLE_MTU", "MTU cambiado a $mtu → descubriendo servicios...")
+                gatt.discoverServices()
+            } else {
+                Log.e("BLE_MTU", "Error cambiando MTU → status=$status")
+            }
+        }
+
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             val service = gatt.getService(SERVICE_UUID)
             service?.let {
-                charTemp = service.getCharacteristic(CHAR_TEMP_UUID)
-                charHumAir = service.getCharacteristic(CHAR_HUM_AIR_UUID)
-                charHumSoil = service.getCharacteristic(CHAR_HUM_SOIL_UUID)
-                charLux = service.getCharacteristic(CHAR_LUX_UUID)
-                charBatt = service.getCharacteristic(CHAR_BATT_UUID)
+                charAllSensors = service.getCharacteristic(CHAR_ALL_SENSORS_UUID)
                 ackCharacteristic = service.getCharacteristic(CHAR_ACK_UUID)
 
-                descriptorWriteStep = 0
-                val descriptorTemp = charTemp?.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
-                descriptorTemp?.let { desc ->
-                    Log.d("BLE_CHAIN", "Activando notify TEMP...")
-                    charTemp?.let { gatt.setCharacteristicNotification(it, true) }
-                    gatt.writeDescriptor(desc.apply {
-                        value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                    })
+                charAllSensors?.let { characteristic ->
+                    val descriptor = characteristic.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
+                    descriptor?.let { desc ->
+                        Log.d("BLE_CHAIN", "Activando notify ALL_SENSORS...")
+                        gatt.setCharacteristicNotification(characteristic, true)
+                        gatt.writeDescriptor(desc.apply {
+                            value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                        })
+                    }
                 }
             }
         }
 
-        override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                descriptorWriteStep++
-                when (descriptorWriteStep) {
-                    1 -> {
-                        val descriptorHumAir = charHumAir?.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
-                        descriptorHumAir?.let { desc ->
-                            Log.d("BLE_CHAIN", "Activando notify HUM_AIR...")
-                            charHumAir?.let { gatt.setCharacteristicNotification(it, true) }
-                            gatt.writeDescriptor(desc.apply {
-                                value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                            })
-                        }
-                    }
-                    2 -> {
-                        val descriptorHumSoil = charHumSoil?.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
-                        descriptorHumSoil?.let { desc ->
-                            Log.d("BLE_CHAIN", "Activando notify HUM_SOIL...")
-                            charHumSoil?.let { gatt.setCharacteristicNotification(it, true) }
-                            gatt.writeDescriptor(desc.apply {
-                                value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                            })
-                        }
-                    }
-                    3 -> {
-                        val descriptorLux = charLux?.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
-                        descriptorLux?.let { desc ->
-                            Log.d("BLE_CHAIN", "Activando notify LUX...")
-                            charLux?.let { gatt.setCharacteristicNotification(it, true) }
-                            gatt.writeDescriptor(desc.apply {
-                                value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                            })
-                        }
-                    }
-                    4 -> {
-                        val descriptorBatt = charBatt?.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
-                        descriptorBatt?.let { desc ->
-                            Log.d("BLE_CHAIN", "Activando notify BATT...")
-                            charBatt?.let { gatt.setCharacteristicNotification(it, true) }
-                            gatt.writeDescriptor(desc.apply {
-                                value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                            })
-                        }
-                    }
-                    else -> {
-                        Log.d("BLE_CHAIN", "Activación de notifies completa.")
-                    }
-                }
-            } else {
-                Log.e("BLE_CHAIN", "Error en onDescriptorWrite, status=$status")
-            }
-        }
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            val value = characteristic.value
-            val buffer = ByteBuffer.wrap(value).order(ByteOrder.LITTLE_ENDIAN)
-            val receivedValues = mutableListOf<Float>()
+            if (characteristic.uuid == CHAR_ALL_SENSORS_UUID) {
+                val value = characteristic.value
+                val buffer = ByteBuffer.wrap(value).order(ByteOrder.LITTLE_ENDIAN)
 
-            for (i in 0 until value.size / 4) {
-                val v = buffer.float
-                receivedValues.add(v)
-            }
+                val sensorSizeBytes = 5 * 4
 
-            when (characteristic.uuid) {
-                CHAR_TEMP_UUID -> {
-                    receivedValues.forEach { bleViewModel.addTemp(it) }
-                    Log.d("BLE_RECEIVED", "TEMP → Recibidos ${receivedValues.size} valores: $receivedValues")
-                }
-                CHAR_HUM_AIR_UUID -> {
-                    receivedValues.forEach { bleViewModel.addHumAir(it) }
-                    Log.d("BLE_RECEIVED", "HUM_AIR → Recibidos ${receivedValues.size} valores: $receivedValues")
-                }
-                CHAR_HUM_SOIL_UUID -> {
-                    receivedValues.forEach { bleViewModel.addHumSoil(it) }
-                    Log.d("BLE_RECEIVED", "HUM_SOIL → Recibidos ${receivedValues.size} valores: $receivedValues")
-                }
-                CHAR_LUX_UUID -> {
-                    receivedValues.forEach { bleViewModel.addLux(it) }
-                    Log.d("BLE_RECEIVED", "LUX → Recibidos ${receivedValues.size} valores: $receivedValues")
-                }
-                CHAR_BATT_UUID -> {
-                    receivedValues.forEach { bleViewModel.addBatt(it) }
-                    Log.d("BLE_RECEIVED", "BATT → Recibidos ${receivedValues.size} valores: $receivedValues")
-                }
-            }
+                val numRecords = value.size / sensorSizeBytes
+                Log.d("BLE_RECEIVED", "ALL_SENSORS → Recibidos $numRecords registros:")
 
-            bleViewModel.lastConnectionTime = System.currentTimeMillis()
+                for (i in 0 until numRecords) {
+                    val temp = buffer.float
+                    val humAir = buffer.float
+                    val humSoil = buffer.float
+                    val lux = buffer.float
+                    val batt = buffer.float
 
-            runOnUiThread {
-                updateCharts()
-                updateLastConnection()
-            }
+                    bleViewModel.addTemp(temp)
+                    bleViewModel.addHumAir(humAir)
+                    bleViewModel.addHumSoil(humSoil)
+                    bleViewModel.addLux(lux)
+                    bleViewModel.addBatt(batt)
 
-            ackCharacteristic?.let { ackChar ->
-                ackChar.value = "OK".toByteArray(Charsets.UTF_8)
-                val result = gatt.writeCharacteristic(ackChar)
-                Log.d("BLE_ACK", "ACK enviado: $result")
+                    Log.d("BLE_RECEIVED", "   #${i+1} → Temp=$temp | HumAir=$humAir | HumSoil=$humSoil | Lux=$lux | Batt=$batt")
+                }
+
+                bleViewModel.lastConnectionTime = System.currentTimeMillis()
+
+                runOnUiThread {
+                    updateCharts()
+                    updateLastConnection()
+                }
+
+                ackCharacteristic?.let { ackChar ->
+                    ackChar.value = "OK".toByteArray(Charsets.UTF_8)
+                    val result = gatt.writeCharacteristic(ackChar)
+                    Log.d("BLE_ACK", "ACK enviado: $result")
+                }
             }
         }
     }
