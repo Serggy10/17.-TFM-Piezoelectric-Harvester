@@ -69,7 +69,19 @@ class BLEViewModel @Inject constructor() : ViewModel() {
         humSoilList.addAll(loadList("humSoilList", object : TypeToken<MutableList<Float>>() {}))
         luxList.addAll(loadList("luxList", object : TypeToken<MutableList<Float>>() {}))
         battList.addAll(loadList("battList", object : TypeToken<MutableList<Float>>() {}))
+        loadLastConnectionTime()
     }
+
+
+
+    fun saveLastConnectionTime() {
+        prefs?.edit()?.putLong("lastConnectionTime", lastConnectionTime)?.apply()
+    }
+
+    fun loadLastConnectionTime() {
+        lastConnectionTime = prefs?.getLong("lastConnectionTime", 0L) ?: 0L
+    }
+
 
     private fun <T> saveList(key: String, list: MutableList<T>) {
         prefs?.edit()?.putString(key, gson.toJson(list))?.apply()

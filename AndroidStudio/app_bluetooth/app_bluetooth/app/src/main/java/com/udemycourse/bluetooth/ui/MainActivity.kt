@@ -119,7 +119,7 @@ class MainActivity : AppCompatActivity() {
 
         scanHandler.postDelayed({
             bleScanner.stopScan(scanCallback)
-        }, 5000)
+        }, 10000) //5000
     }
 
     private val scanCallback = object : ScanCallback() {
@@ -199,6 +199,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 bleViewModel.lastConnectionTime = System.currentTimeMillis()
+                bleViewModel.saveLastConnectionTime()
 
                 runOnUiThread {
                     updateCharts()
@@ -272,6 +273,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateLastConnection() {
         val time = bleViewModel.lastConnectionTime
-        binding.tvLastConnection.text = "Última conexión: ${java.text.SimpleDateFormat("HH:mm:ss").format(time)}"
+        val format = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault())
+        binding.tvLastConnection.text = "Última conexión: ${format.format(time)}"
+
     }
 }
