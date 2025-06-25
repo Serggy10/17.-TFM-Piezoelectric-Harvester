@@ -11,14 +11,15 @@
 
 #define BUFFER_SIZE 200
 #define PACKET_SIZE 5
-#define MEASURE_CYCLE_MINUTES 5
+#define MEASURE_CYCLE_MINUTES 0.1
 #define BLE_TIMEOUT_SECONDS 30
 #define NUM_REGISTROS 1
 
 // ACTIVAR/DESACTIVAR DEBUG SERIAL
-// #define DEBUG_SERIAL
+#define DEBUG_SERIAL
 
-struct SensorData {
+struct SensorData
+{
   float temp;
   float humAir;
   float humSoil;
@@ -28,8 +29,8 @@ struct SensorData {
 
 // FIFO circular
 RTC_DATA_ATTR SensorData data_buffer[BUFFER_SIZE];
-RTC_DATA_ATTR int fifo_head = 0;  // índice de lectura (primer dato no enviado)
-RTC_DATA_ATTR int fifo_tail = 0;  // índice de escritura (siguiente hueco)
+RTC_DATA_ATTR int fifo_head = 0; // índice de lectura (primer dato no enviado)
+RTC_DATA_ATTR int fifo_tail = 0; // índice de escritura (siguiente hueco)
 
 // BLE
 BLEServer *pServer;
@@ -40,21 +41,24 @@ BLECharacteristic *pCharAck;
 volatile bool ack_received = false;
 
 // --- FUNCIONES FIFO ---
-int fifo_count() {
+int fifo_count()
+{
   if (fifo_tail >= fifo_head)
     return fifo_tail - fifo_head;
   else
     return BUFFER_SIZE - fifo_head + fifo_tail;
 }
 
-void fifo_push(SensorData data) {
+void fifo_push(SensorData data)
+{
   int next_tail = (fifo_tail + 1) % BUFFER_SIZE;
 
-  if (next_tail == fifo_head) {
-    // Cola llena → sobreescribimos el más antiguo
-    #ifdef DEBUG_SERIAL
+  if (next_tail == fifo_head)
+  {
+// Cola llena → sobreescribimos el más antiguo
+#ifdef DEBUG_SERIAL
     Serial.println("WARNING: FIFO lleno → sobreescribiendo dato más antiguo");
-    #endif
+#endif
     fifo_head = (fifo_head + 1) % BUFFER_SIZE;
   }
 
@@ -63,36 +67,43 @@ void fifo_push(SensorData data) {
 }
 
 // --- BLE CALLBACKS ---
-class MyServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer *pServer) {
-    #ifdef DEBUG_SERIAL
+class MyServerCallbacks : public BLEServerCallbacks
+{
+  void onConnect(BLEServer *pServer)
+  {
+#ifdef DEBUG_SERIAL
     Serial.println("Cliente BLE conectado.");
-    #endif
+#endif
   }
-  void onDisconnect(BLEServer *pServer) {
-    #ifdef DEBUG_SERIAL
+  void onDisconnect(BLEServer *pServer)
+  {
+#ifdef DEBUG_SERIAL
     Serial.println("Cliente BLE desconectado.");
-    #endif
+#endif
   }
 };
 
-class AckCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic *pCharacteristic) {
+class AckCallbacks : public BLECharacteristicCallbacks
+{
+  void onWrite(BLECharacteristic *pCharacteristic)
+  {
     std::string value = pCharacteristic->getValue();
-    if (value == "OK") {
+    if (value == "OK")
+    {
       ack_received = true;
-      #ifdef DEBUG_SERIAL
+#ifdef DEBUG_SERIAL
       Serial.println("ACK recibido.");
-      #endif
+#endif
     }
   }
 };
 
 // --- BLE INIT ---
-void iniciarBLE() {
-  #ifdef DEBUG_SERIAL
+void iniciarBLE()
+{
+#ifdef DEBUG_SERIAL
   Serial.println("Inicializando BLE...");
-  #endif
+#endif
 
   BLEDevice::init(DEVICE_ID);
   pServer = BLEDevice::createServer();
@@ -117,39 +128,43 @@ void iniciarBLE() {
   pAdvertising->setMinPreferred(0x12);
 
   BLEDevice::startAdvertising();
-  #ifdef DEBUG_SERIAL
+#ifdef DEBUG_SERIAL
   Serial.println("BLE advertising activo.");
-  #endif
+#endif
 }
 
-void pararBLE() {
-  BLEDevice::deinit(false);  // más robusto
-  #ifdef DEBUG_SERIAL
+void pararBLE()
+{
+  BLEDevice::deinit(false); // más robusto
+#ifdef DEBUG_SERIAL
   Serial.println("BLE detenido.");
-  #endif
+#endif
 }
 
 // --- ENVIAR PAQUETES ---
-void enviarPaquetes() {
+void enviarPaquetes()
+{
   int count = fifo_count();
-  #ifdef DEBUG_SERIAL
+#ifdef DEBUG_SERIAL
   Serial.printf("FIFO contiene %d registros\n", count);
-  #endif
+#endif
 
   int index = fifo_head;
 
-  while (count > 0) {
+  while (count > 0)
+  {
     int currentPacketSize = min(PACKET_SIZE, count);
 
-    #ifdef DEBUG_SERIAL
+#ifdef DEBUG_SERIAL
     Serial.printf("[ALL_SENSORS] Paquete desde index %d (%d elementos)\n", index, currentPacketSize);
-    #endif
+#endif
 
     SensorData packet[PACKET_SIZE];
-    for (int i = 0; i < currentPacketSize; i++) {
+    for (int i = 0; i < currentPacketSize; i++)
+    {
       packet[i] = data_buffer[(index + i) % BUFFER_SIZE];
 
-      #ifdef DEBUG_SERIAL
+#ifdef DEBUG_SERIAL
       Serial.printf("  %2d) Temp=%.1f °C | HumAir=%.1f %% | HumSoil=%.1f %% | Lux=%.1f lx | Batt=%.2f V\n",
                     i + 1,
                     packet[i].temp,
@@ -157,7 +172,7 @@ void enviarPaquetes() {
                     packet[i].humSoil,
                     packet[i].lux,
                     packet[i].batt);
-      #endif
+#endif
     }
 
     ack_received = false;
@@ -165,50 +180,60 @@ void enviarPaquetes() {
     pCharAllSensors->notify();
 
     unsigned long ackStartTime = millis();
-    while (!ack_received && (millis() - ackStartTime) < 4000) {
+    while (!ack_received && (millis() - ackStartTime) < 4000)
+    {
       delay(10);
     }
 
-    if (ack_received) {
-      #ifdef DEBUG_SERIAL
+    if (ack_received)
+    {
+#ifdef DEBUG_SERIAL
       Serial.println("[ALL_SENSORS] ACK OK → avanzando FIFO...");
-      #endif
+#endif
       fifo_head = (fifo_head + currentPacketSize) % BUFFER_SIZE;
       count -= currentPacketSize;
       index = fifo_head;
-    } else {
-      #ifdef DEBUG_SERIAL
+    }
+    else
+    {
+#ifdef DEBUG_SERIAL
       Serial.println("[ALL_SENSORS] Timeout esperando ACK. Abandonando envío.");
-      #endif
+#endif
       break;
     }
   }
 
-  #ifdef DEBUG_SERIAL
+#ifdef DEBUG_SERIAL
   Serial.println("[ALL_SENSORS] Envío completo.");
-  #endif
+#endif
 }
 
 // --- DEEP SLEEP ---
-void irDeepSleep() {
+void irDeepSleep()
+{
   uint64_t sleep_us = (uint64_t)(MEASURE_CYCLE_MINUTES * 60ULL * 1000000ULL);
-  #ifdef DEBUG_SERIAL
+#ifdef DEBUG_SERIAL
   Serial.printf("Entrando en deep sleep %.2f minutos (%.0f ms)...\n", MEASURE_CYCLE_MINUTES, sleep_us / 1000.0);
-  #endif
+#endif
   esp_sleep_enable_timer_wakeup(sleep_us);
   esp_deep_sleep_start();
 }
 
 // --- SETUP ---
-void setup() {
-  #ifdef DEBUG_SERIAL
+void setup()
+{
+#ifdef DEBUG_SERIAL
   Serial.begin(115200);
-  while (!Serial) {}
+  while (!Serial)
+  {
+  }
   delay(2000);
   Serial.println("--- Ciclo de medida ---");
-  #endif
+#endif
+
 
   // Simular medición sensores
+
   SensorData data;
   data.temp = random(180, 300) / 10.0;
   data.humAir = random(300, 800) / 10.0;
@@ -218,53 +243,62 @@ void setup() {
 
   fifo_push(data);
 
-  #ifdef DEBUG_SERIAL
+#ifdef DEBUG_SERIAL
   Serial.printf("Guardada medida → FIFO count = %d\n", fifo_count());
-  #endif
+#endif
 
   // Si hay múltiplo de NUM_REGISTROS → intentar enviar BLE
-  if ((fifo_count() % NUM_REGISTROS) == 0) {
-    #ifdef DEBUG_SERIAL
-    Serial.println("FIFO múltiplo de " + String(NUM_REGISTROS)+ "→ intentar enviar BLE.");
-    #endif
+  if ((fifo_count() % NUM_REGISTROS) == 0)
+  {
+#ifdef DEBUG_SERIAL
+    Serial.println("FIFO múltiplo de " + String(NUM_REGISTROS) + "→ intentar enviar BLE.");
+#endif
 
     iniciarBLE();
 
     unsigned long startTime = millis();
     bool connected = false;
 
-    while ((millis() - startTime) < (BLE_TIMEOUT_SECONDS * 1000)) {
-      if (pServer->getConnectedCount() > 0) {
+    while ((millis() - startTime) < (BLE_TIMEOUT_SECONDS * 1000))
+    {
+      if (pServer->getConnectedCount() > 0)
+      {
         connected = true;
         break;
       }
       delay(100);
     }
 
-    if (connected) {
-      #ifdef DEBUG_SERIAL
+    if (connected)
+    {
+#ifdef DEBUG_SERIAL
       Serial.println("Conexión BLE establecida.");
       Serial.println("Esperando 1500 ms para que app active notify...");
-      #endif
-      delay(1500);  // más robusto
+#endif
+      delay(1500); // más robusto
 
       enviarPaquetes();
-    } else {
-      #ifdef DEBUG_SERIAL
+    }
+    else
+    {
+#ifdef DEBUG_SERIAL
       Serial.println("Timeout BLE → no se envía. Guardamos para siguiente intento.");
-      #endif
+#endif
     }
 
     pararBLE();
-  } else {
-    #ifdef DEBUG_SERIAL
+  }
+  else
+  {
+#ifdef DEBUG_SERIAL
     Serial.println("No es múltiplo de 10. Volviendo a dormir.");
-    #endif
+#endif
   }
 
   irDeepSleep();
 }
 
-void loop() {
+void loop()
+{
   // No se usa
 }
