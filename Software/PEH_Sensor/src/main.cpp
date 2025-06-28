@@ -9,11 +9,10 @@
 #define CHAR_ALL_SENSORS_UUID "0000aaaa-0000-1000-8000-00805f9b34fb"
 #define CHAR_ACK_UUID "0000aaff-0000-1000-8000-00805f9b34fb"
 
-#define BUFFER_SIZE 200
 #define PACKET_SIZE 5
-#define MEASURE_CYCLE_MINUTES 0.05
+#define MEASURE_CYCLE_MINUTES 5
 #define BLE_TIMEOUT_SECONDS 20
-#define NUM_REGISTROS 1
+#define NUM_REGISTROS 10
 
 // ACTIVAR/DESACTIVAR DEBUG SERIAL
 #define DEBUG_SERIAL
@@ -22,11 +21,16 @@
 #include <SparkFun_SHTC3.h>
 #include <Adafruit_VEML7700.h>
 #include <INA226.h>
+#include <FS.h>
+#include <SPIFFS.h>
+
+#define SPIFFS_PATH "/sensores.dat"
 
 #define SDA_PIN 4
 #define SCL_PIN 5
+#define A_IN_SKU 6
+#define EN_SKU 7
 
-// Adafruit_SHTC3 shtc3 = Adafruit_SHTC3();
 SHTC3 shtc3;
 Adafruit_VEML7700 veml = Adafruit_VEML7700();
 INA226 ina(0x40, &Wire);
@@ -44,11 +48,6 @@ struct SensorData
   float batt;
 };
 
-// FIFO circular
-RTC_DATA_ATTR SensorData data_buffer[BUFFER_SIZE];
-RTC_DATA_ATTR int fifo_head = 0;
-RTC_DATA_ATTR int fifo_tail = 0;
-
 // BLE
 BLEServer *pServer;
 BLEService *pService;
@@ -56,26 +55,6 @@ BLECharacteristic *pCharAllSensors;
 BLECharacteristic *pCharAck;
 
 volatile bool ack_received = false;
-
-// --- FUNCIONES FIFO ---
-int fifo_count()
-{
-  return (fifo_tail >= fifo_head) ? (fifo_tail - fifo_head) : (BUFFER_SIZE - fifo_head + fifo_tail);
-}
-
-void fifo_push(SensorData data)
-{
-  int next_tail = (fifo_tail + 1) % BUFFER_SIZE;
-  if (next_tail == fifo_head)
-  {
-#ifdef DEBUG_SERIAL
-    Serial.println("WARNING: FIFO lleno → sobreescribiendo dato más antiguo");
-#endif
-    fifo_head = (fifo_head + 1) % BUFFER_SIZE;
-  }
-  data_buffer[fifo_tail] = data;
-  fifo_tail = next_tail;
-}
 
 // --- BLE CALLBACKS ---
 class MyServerCallbacks : public BLEServerCallbacks
@@ -189,7 +168,7 @@ bool intentarReintentoBegin(SensorClass &sensor, TwoWire *wire = &Wire, int inte
 // --- SENSORES ---
 void iniciarSensores()
 {
-  delay(1000); // Espera tras I2C
+  delay(100); // Espera tras I2C
 
   // --- SHTC3 SparkFun ---
   shtc3_ok = (shtc3.begin(Wire) == SHTC3_Status_Nominal);
@@ -231,7 +210,6 @@ void iniciarSensores()
 #endif
 }
 
-
 SensorData leerSensores()
 {
   SensorData data;
@@ -254,38 +232,68 @@ SensorData leerSensores()
   // --- INA226 ---
   data.batt = ina_ok ? ina.getBusVoltage() : -1.0;
 
-  // --- Humedad del suelo (simulada) ---
-  data.humSoil = random(100, 800) / 10.0;
+  // --- Humedad del suelo
+  digitalWrite(EN_SKU, 1);
+  delay(100);
+  data.humSoil = analogRead(A_IN_SKU);
+  digitalWrite(EN_SKU, 0);
 
   return data;
 }
 
+int contarRegistrosSPIFFS()
+{
+  File file = SPIFFS.open(SPIFFS_PATH, FILE_READ);
+  if (!file)
+    return 0;
+  int size = file.size();
+  file.close();
+  return size / sizeof(SensorData);
+}
+
+void borrarArchivoSPIFFS()
+{
+  SPIFFS.remove(SPIFFS_PATH);
+}
+
+bool leerPaqueteSPIFFS(int inicio, int cantidad, SensorData *destino)
+{
+  File file = SPIFFS.open(SPIFFS_PATH, FILE_READ);
+  if (!file)
+    return false;
+  file.seek(inicio * sizeof(SensorData));
+  for (int i = 0; i < cantidad; i++)
+  {
+    if (file.read((uint8_t *)&destino[i], sizeof(SensorData)) != sizeof(SensorData))
+    {
+      file.close();
+      return false;
+    }
+  }
+  file.close();
+  return true;
+}
 
 // --- ENVIAR PAQUETES ---
-void enviarPaquetes()
+void enviarPaquetesSPIFFS()
 {
-  int count = fifo_count();
+  int total = contarRegistrosSPIFFS();
 #ifdef DEBUG_SERIAL
-  Serial.printf("FIFO contiene %d registros\n", count);
+  Serial.printf("SPIFFS contiene %d registros\n", total);
 #endif
+  int index = 0;
 
-  int index = fifo_head;
-  while (count > 0)
+  while (total > 0)
   {
-    int currentPacketSize = min(PACKET_SIZE, count);
-#ifdef DEBUG_SERIAL
-    Serial.printf("[ALL_SENSORS] Paquete desde index %d (%d elementos)\n", index, currentPacketSize);
-#endif
-
+    int currentPacketSize = min(PACKET_SIZE, total);
     SensorData packet[PACKET_SIZE];
-    for (int i = 0; i < currentPacketSize; i++)
+
+    if (!leerPaqueteSPIFFS(index, currentPacketSize, packet))
     {
-      packet[i] = data_buffer[(index + i) % BUFFER_SIZE];
 #ifdef DEBUG_SERIAL
-      Serial.printf("  %2d) Temp=%.1f °C | HumAir=%.1f %% | HumSoil=%.1f %% | Lux=%.1f lx | Batt=%.2f V\n",
-                    i + 1, packet[i].temp, packet[i].humAir,
-                    packet[i].humSoil, packet[i].lux, packet[i].batt);
+      Serial.println("Error leyendo paquete desde SPIFFS");
 #endif
+      return;
     }
 
     ack_received = false;
@@ -299,22 +307,23 @@ void enviarPaquetes()
     if (ack_received)
     {
 #ifdef DEBUG_SERIAL
-      Serial.println("[ALL_SENSORS] ACK OK → avanzando FIFO...");
+      Serial.println("[SPIFFS] ACK OK → avanzando...");
 #endif
-      fifo_head = (fifo_head + currentPacketSize) % BUFFER_SIZE;
-      count -= currentPacketSize;
-      index = fifo_head;
+      index += currentPacketSize;
+      total -= currentPacketSize;
     }
     else
     {
 #ifdef DEBUG_SERIAL
-      Serial.println("[ALL_SENSORS] Timeout esperando ACK. Abandonando envío.");
+      Serial.println("[SPIFFS] Timeout esperando ACK. Abandonando envío.");
 #endif
-      break;
+      return;
     }
   }
+
+  borrarArchivoSPIFFS();
 #ifdef DEBUG_SERIAL
-  Serial.println("[ALL_SENSORS] Envío completo.");
+  Serial.println("[SPIFFS] Todos los datos enviados y archivo borrado.");
 #endif
 }
 
@@ -331,6 +340,20 @@ void irDeepSleep()
   esp_deep_sleep_start();
 }
 
+void guardarEnSPIFFS(const SensorData &data)
+{
+  File file = SPIFFS.open(SPIFFS_PATH, FILE_APPEND);
+  if (!file)
+  {
+#ifdef DEBUG_SERIAL
+    Serial.println("Error abriendo archivo para guardar");
+#endif
+    return;
+  }
+  file.write((uint8_t *)&data, sizeof(SensorData));
+  file.close();
+}
+
 // --- SETUP ---
 void setup()
 {
@@ -339,25 +362,33 @@ void setup()
   while (!Serial)
   {
   }
-  delay(2000);
+  delay(200);
   Serial.println("--- Ciclo de medida ---");
 #endif
+
+  if (!SPIFFS.begin(true))
+  {
+#ifdef DEBUG_SERIAL
+    Serial.println("Error al montar SPIFFS");
+#endif
+  }
 
   desbloquearBusI2C();
   Wire.begin(SDA_PIN, SCL_PIN);
   iniciarSensores();
 
   SensorData data = leerSensores();
-  fifo_push(data);
+  guardarEnSPIFFS(data);
+  int count = contarRegistrosSPIFFS();
 
 #ifdef DEBUG_SERIAL
-  Serial.printf("Guardada medida → FIFO count = %d\n", fifo_count());
+  Serial.printf("Guardada medida → Total en SPIFFS = %d\n", count);
 #endif
 
-  if ((fifo_count() % NUM_REGISTROS) == 0)
+  if ((count % NUM_REGISTROS) == 0 && count > 0)
   {
 #ifdef DEBUG_SERIAL
-    Serial.println("FIFO múltiplo de " + String(NUM_REGISTROS) + "→ intentar enviar BLE.");
+    Serial.println("Cantidad de registros es múltiplo de " + String(NUM_REGISTROS) + " → intentar enviar BLE.");
 #endif
 
     iniciarBLE();
@@ -381,7 +412,7 @@ void setup()
       Serial.println("Esperando 1500 ms para que app active notify...");
 #endif
       delay(1500);
-      enviarPaquetes();
+      enviarPaquetesSPIFFS();
     }
     else
     {
@@ -395,7 +426,7 @@ void setup()
   else
   {
 #ifdef DEBUG_SERIAL
-    Serial.println("No es múltiplo de " + String(NUM_REGISTROS) + ". Volviendo a dormir.");
+    Serial.println("Cantidad de registros no es múltiplo de " + String(NUM_REGISTROS) + ". Volviendo a dormir.");
 #endif
   }
 
