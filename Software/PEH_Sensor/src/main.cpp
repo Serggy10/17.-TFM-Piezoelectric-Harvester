@@ -10,12 +10,12 @@
 #define CHAR_ACK_UUID "0000aaff-0000-1000-8000-00805f9b34fb"
 
 #define PACKET_SIZE 5
-#define MEASURE_CYCLE_MINUTES 5
+#define MEASURE_CYCLE_MINUTES 0.1
 #define BLE_TIMEOUT_SECONDS 20
 #define NUM_REGISTROS 10
 
 // ACTIVAR/DESACTIVAR DEBUG SERIAL
-#define DEBUG_SERIAL
+// #define DEBUG_SERIAL
 
 #include <Wire.h>
 #include <SparkFun_SHTC3.h>
@@ -23,6 +23,7 @@
 #include <INA226.h>
 #include <FS.h>
 #include <SPIFFS.h>
+#include <Adafruit_NeoPixel.h>
 
 #define SPIFFS_PATH "/sensores.dat"
 
@@ -30,6 +31,9 @@
 #define SCL_PIN 5
 #define A_IN_SKU 6
 #define EN_SKU 7
+#define LED_PIN 48
+#define LED_COUNT 1
+Adafruit_NeoPixel pixel(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 SHTC3 shtc3;
 Adafruit_VEML7700 veml = Adafruit_VEML7700();
@@ -117,6 +121,10 @@ void iniciarBLE()
   pAdvertising->setMinPreferred(0x12);
 
   BLEDevice::startAdvertising();
+
+  pixel.setPixelColor(0, pixel.Color(55, 0, 0)); // 🔴 Rojo para advertising
+  pixel.show();
+
 #ifdef DEBUG_SERIAL
   Serial.println("BLE advertising activo.");
 #endif
@@ -163,6 +171,19 @@ bool intentarReintentoBegin(SensorClass &sensor, TwoWire *wire = &Wire, int inte
     delay(150);
   }
   return false;
+}
+
+void parpadearVeces(int veces, uint32_t color = pixel.Color(0, 55, 0), int duracion = 150)
+{
+  for (int i = 0; i < veces; i++)
+  {
+    pixel.setPixelColor(0, color);
+    pixel.show();
+    delay(duracion);
+    pixel.clear();
+    pixel.show();
+    delay(duracion);
+  }
 }
 
 // --- SENSORES ---
@@ -327,17 +348,50 @@ void enviarPaquetesSPIFFS()
 #endif
 }
 
-// --- DEEP SLEEP ---
-void irDeepSleep()
+void irSleep(int count)
 {
-  Wire.end(); // libera bus
+  Wire.end();
   delay(100);
+  btStop();
+
   uint64_t sleep_us = (uint64_t)(MEASURE_CYCLE_MINUTES * 60ULL * 1000000ULL);
+
 #ifdef DEBUG_SERIAL
-  Serial.printf("Entrando en deep sleep %.2f minutos (%.0f ms)...\n", MEASURE_CYCLE_MINUTES, sleep_us / 1000.0);
+  Serial.printf("Ciclo %d → ", count);
 #endif
+
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   esp_sleep_enable_timer_wakeup(sleep_us);
-  esp_deep_sleep_start();
+
+  if (count % NUM_REGISTROS == 0)
+  {
+#ifdef DEBUG_SERIAL
+    Serial.printf("entrando en LIGHT sleep (%.2f min)...\n", MEASURE_CYCLE_MINUTES);
+#endif
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+    esp_light_sleep_start();
+
+    // 🔦 Señal de salida de light sleep (indicador visual)
+    pixel.setPixelColor(0, pixel.Color(0, 0, 255)); // Azul
+    pixel.show();
+    delay(250); 
+    pixel.clear();
+    pixel.show();
+
+#ifdef DEBUG_SERIAL
+    Serial.println("Reiniciando tras light sleep (fallback)");
+#endif
+    esp_restart();
+  }
+  else
+  {
+    int numParpadeos = count % NUM_REGISTROS;
+    parpadearVeces(numParpadeos);
+#ifdef DEBUG_SERIAL
+    Serial.printf("entrando en DEEP sleep (%.2f min)...\n", MEASURE_CYCLE_MINUTES);
+#endif
+    esp_deep_sleep_start();
+  }
 }
 
 void guardarEnSPIFFS(const SensorData &data)
@@ -362,6 +416,10 @@ void setup()
   while (!Serial)
   {
   }
+  pixel.begin(); // Inicializa el pin
+  pixel.clear(); // Apaga cualquier LED residual
+  pixel.show();
+
   delay(200);
   Serial.println("--- Ciclo de medida ---");
 #endif
@@ -430,10 +488,11 @@ void setup()
 #endif
   }
 
-  irDeepSleep();
+  irSleep(count);
 }
 
 void loop()
 {
-  // No se usa
+  Serial.println("loop");
+  esp_restart();
 }
